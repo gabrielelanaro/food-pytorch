@@ -1,13 +1,30 @@
 from food.transformers.pairwise import PairwiseTransform
+from food.training.trainer import Trainer
+
 import numpy as np
 
 
+def make_dataset(n_images, n_classes):
+    random_images = np.random.randint(0, 256, size=(n_images, 3, 224, 224))
+    random_classes = np.random.randint(0, n_classes, size=n_images)
+
+    random_images = random_images.astype('float32') / 256
+    return random_images, random_classes
+
 def test_siamese_net():
+    n_images = 100
+    n_classes = 4
 
+    X, y = make_dataset(n_images, n_classes)
 
-    clf = SiameseNet()
+    tf = PairwiseTransform(3, 4)
+
+    clf = Trainer()
     # For a siamese network you need to provide a pair, and give 0, 1
-    clf.fit(X, y)
+    X_tf, y_tf = tf.transform(X, y)
+
+    print(X_tf.shape)
+    clf.fit_batch(X_tf, y_tf)
 
 
 def test_pairwise():
