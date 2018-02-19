@@ -11,6 +11,7 @@ def make_dataset(n_images, n_classes):
     random_images = random_images.astype('float32') / 256
     return random_images, random_classes
 
+
 def test_siamese_net():
     n_images = 100
     n_classes = 4
