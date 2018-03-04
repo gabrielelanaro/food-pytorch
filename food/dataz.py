@@ -31,6 +31,7 @@ def generate_matching_pairs(group1, group2):
     same_key = group1[0] == group2[0]
     return [(same_key, k1, k2) for k1 in group1[1] for k2 in group2[1]]
 
+
 class Collection(DaskMethodsMixin):
     def __init__(self, dsk, keys):
         self._dsk = dsk

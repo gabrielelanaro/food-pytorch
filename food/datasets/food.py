@@ -5,7 +5,7 @@ import numpy as np
 from toolz import concat
 from skimage import io, transform
 from torch.utils.data import Dataset
-
+from food.itemz import Collection
 from ..transformers.pairwise import PairwiseTransform
 
 
@@ -15,46 +15,74 @@ def load_filenames(path):
     '''
 
     classes = os.listdir(os.path.join(path, 'images'))
-    dataset = concat([[(img, c) for img in glob.glob(os.path.join(path, 'images', c, '*.jpg'))]
+    dataset = concat([[(c, img) for img in glob.glob(os.path.join(path, 'images', c, '*.jpg'))]
                for c in classes])
 
     return list(dataset)
 
+def make_dataset(path):
+    c = Collection.create((load_filenames, path))
+    c_train, c_test = (c.groupby(0)  # Group by class
+                       .evolve(1, lambda x: list(pluck(1, x))) # Remove class from tuple
+                       .combinations(replacement=True) # Generate combinations for classes
+                       .starmap(generate_matching_pairs) # Generate one-hot
+                       .flatten()
+                       .persist()
+                       .filter(random_drop(0.5)) # Subsample the negative examples (too many)
+                       .random_split(0.70))
 
+
+def generate_matching_pairs(group1, group2):
+    same_key = group1[0] == group2[0]
+    return [(same_key, k1, k2) for k1 in group1[1] for k2 in group2[1]]
+
+@curry
+def random_drop(proportion, seed, data):
+    random.seed(seed)
+    if random.random() < proportion and data[0] is False:
+        return False
+    else:
+        return True
 
 class Food101PairwiseDataset(Dataset):
 
-    def __init__(self, path, transform=None):
-        """
-        Args:
-            csv_file (string): Path to the csv file with annotations.
-            root_dir (string): Directory with all the images.
-            transform (callable, optional): Optional transform to be applied
-                on a sample.
-        """
-        num_pos = 3
-        num_neg = 3
-
+    def __init__(self, path, test_proportion=0.1):
         self.path = path
-        self.transform = transform
-        X, y = zip(*load_filenames(self.path))
+        train, test = (Collection.create((load_filenames, path))
+                                 .random_split(test_proportion, 1))
 
-        self.X = np.array(X)
-        self.y = np.array(y)
-        self.tf = PairwiseTransform(num_pos, num_neg)
-        self.X_tf, self.y_tf = self.tf.transform(self.X, self.y)
+        pipe = (Collection.pipeline('file_list')
+               .groupby(0)  # Group by class
+               .evolve(1, lambda x: list(pluck(1, x))) # Remove class from tuple
+               .combinations(replacement=True) # Generate combinations for classes
+               .starmap(generate_matching_pairs) # Generate one-shot triplets
+               .flatten())
+
+        self._train_data = pipe.pump({'file_list': train})
+        self._test_data = pipe.pump({'file_list': test})
+
+        self.train()
+
+    def _process_image(self, fname):
+        img = io.imread(fname)
+        img = transform.resize(img, (224, 224))
+        return img
+
+    def test(self):
+        self.data = self._test_data.compute()
+
+    def train(self):
+        self.data = self._train_data.compute()
 
     def __len__(self):
-        return 600
+        return len(self.data)
 
     def __getitem__(self, idx):
-        fname_a, fname_b = self.X_tf[idx]
-        out = self.y_tf[idx]
+        match, imga, imgb = self.data[idx]
 
-        img_a, img_b = io.imread(fname_a), io.imread(fname_b)
-        img_a = transform.resize(img_a, (224, 224))
-        img_b = transform.resize(img_b, (224, 224))
+        imga = self._process_image(imga)
+        imgb = self._process_image(imgb)
 
-        sample = {'pair': np.array([img_a, img_b]), 'match': out}
+        sample = {'pair': np.array([img_a, img_b]), 'match': match}
 
         return sample
