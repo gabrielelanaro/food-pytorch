@@ -36,10 +36,10 @@ def generate_matching_pairs(group1, group2):
 
     random.shuffle(items1)
     random.shuffle(items2)
-    
+
     items1 = items1[:k]
     items2 = items2[:k]
-    
+
     return [(same_key, k1, k2) for k1 in items1 for k2 in items2]
 
 class Food101PairwiseDataset(Dataset):
@@ -70,13 +70,13 @@ class Food101PairwiseDataset(Dataset):
         #if self.resnet_format:
         #    img = np.swapaxes(np.swapaxes(img, 1, 2), 0, 1)
         #    img = img.astype('float32') / 255
-        
+
         return self._noise_image(img)
 
-    
+
     def _noise_image(self, img):
         transform = transforms.Compose(
-            [   
+            [
                 transforms.RandomRotation(60),
                 transforms.Resize((224, 224)),
                 transforms.RandomResizedCrop(224),
@@ -106,27 +106,42 @@ class Food101PairwiseDataset(Dataset):
 
         return sample
 
-    
-    
-class Food101PairwiseDatasetTriplet(Dataset):
+
+
+class Food101Dataset(Dataset):
 
     def __init__(self, path, test_proportion=0.1, resnet_format=False):
         self.path = path
         self.resnet_format = resnet_format
-        train, test = (Collection.create((load_filenames, path))
-                                 .random_split(test_proportion, 1))
-        train = train.persist()
-        test = test.persist()
+        self._files = load_filenames(path)
 
-        pipe = (Collection.pipeline('file_list')
-                .scramble()
-               .groupby(0)  # Group by class
-               .evolve(1, lambda x: list(pluck(1, x))) # Remove class from tuple
-               .combinations(replacement=True) # Generate combinations for classes
-               .starmap(generate_matching_pairs) # Generate one-shot triplets
-               .flatten())
+    def __len__(self):
+        return len(self._files)
 
-        self._train_data = pipe.pump({'file_list': train})
-        self._test_data = pipe.pump({'file_list': test})
+    def __getitem__(self, idx):
+        c, img_file = self._files[idx]
 
-        self.train()
+        sample = {'images': self._process_image(img_file), 'labels': hash(c)}
+        return sample
+
+    def _process_image(self, fname):
+        img = Image.open(fname)
+        return self._eval_image(img)
+
+    def _eval_image(self, img):
+        transform = transforms.Compose(
+            transforms.Resize((224, 224)),
+            transforms.ToTensor()
+        )
+        return transform(img)
+
+    def _noise_image(self, img):
+        transform = transforms.Compose(
+            [
+                transforms.RandomRotation(60),
+                transforms.Resize((224, 224)),
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor()
+            ])
+        return transform(img)
