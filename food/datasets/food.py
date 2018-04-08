@@ -1,11 +1,12 @@
 import os
 import glob
 import numpy as np
+import mango
 
 from toolz import concat
 from skimage import io, transform
 from torch.utils.data import Dataset
-from food.itemz import Collection
+
 from toolz.curried import curry, pluck
 from ..transformers.pairwise import PairwiseTransform
 import random
@@ -36,10 +37,10 @@ def generate_matching_pairs(group1, group2):
 
     random.shuffle(items1)
     random.shuffle(items2)
-
+    
     items1 = items1[:k]
     items2 = items2[:k]
-
+    
     return [(same_key, k1, k2) for k1 in items1 for k2 in items2]
 
 class Food101PairwiseDataset(Dataset):
@@ -70,13 +71,13 @@ class Food101PairwiseDataset(Dataset):
         #if self.resnet_format:
         #    img = np.swapaxes(np.swapaxes(img, 1, 2), 0, 1)
         #    img = img.astype('float32') / 255
-
+        
         return self._noise_image(img)
 
-
+    
     def _noise_image(self, img):
         transform = transforms.Compose(
-            [
+            [   
                 transforms.RandomRotation(60),
                 transforms.Resize((224, 224)),
                 transforms.RandomResizedCrop(224),
@@ -106,42 +107,39 @@ class Food101PairwiseDataset(Dataset):
 
         return sample
 
+    
+    
+class Food101Dataset:
 
+    path: str
 
-class Food101Dataset(Dataset):
-
-    def __init__(self, path, test_proportion=0.1, resnet_format=False):
+    def __init__(self, path):
         self.path = path
-        self.resnet_format = resnet_format
-        self._files = load_filenames(path)
-
-    def __len__(self):
-        return len(self._files)
+        
+    def load(self):
+        self.filenames = load_filenames(self.path)
 
     def __getitem__(self, idx):
-        c, img_file = self._files[idx]
-
-        sample = {'images': self._process_image(img_file), 'labels': hash(c)}
-        return sample
-
+        klass, image_fname = self.filenames[idx]
+        img = self._process_image(image_fname)
+        return {'images': img, 'labels': hash(klass)}
+        
+    def __len__(self):
+        return len(self.filenames)
+    
     def _process_image(self, fname):
         img = Image.open(fname)
-        return self._eval_image(img)
+        return self._noise_image(img)
 
-    def _eval_image(self, img):
-        transform = transforms.Compose(
-            transforms.Resize((224, 224)),
-            transforms.ToTensor()
-        )
-        return transform(img)
-
+    
     def _noise_image(self, img):
         transform = transforms.Compose(
-            [
+            [   
                 transforms.RandomRotation(60),
                 transforms.Resize((224, 224)),
                 transforms.RandomResizedCrop(224),
                 transforms.RandomHorizontalFlip(),
+                # ColorJitter(0.1, 0.1, 0.1),
                 transforms.ToTensor()
             ])
-        return transform(img)
+        return transform(img).numpy()

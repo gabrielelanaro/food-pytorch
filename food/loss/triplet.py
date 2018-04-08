@@ -15,9 +15,12 @@ class OnlineTripletLoss(nn.Module):
         self.triplet_selector = triplet_selector
 
     def forward(self, embeddings, target):
-
-        triplets = self.triplet_selector.get_triplets(embeddings, target)
-
+        
+        try:
+            triplets = self.triplet_selector.get_triplets(embeddings, target)
+        except ValueError:
+            return None, 0
+        
         if embeddings.is_cuda:
             triplets = triplets.cuda()
 

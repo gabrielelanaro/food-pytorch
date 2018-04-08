@@ -13,7 +13,7 @@ def pdist(vectors):
     y = vectors.unsqueeze(0).expand(n, n, d)
 
     distance_matrix = torch.pow(x - y, 2).sum(2)
-    return distance_matrix.squeeze(2)
+    return distance_matrix
 
 
 class PairSelector:
@@ -177,11 +177,17 @@ class FunctionNegativeTripletSelector(TripletSelector):
                     hard_negative = negative_indices[hard_negative]
                     triplets.append([anchor_positive[0], anchor_positive[1], hard_negative])
 
+        if (len(triplets) == 0 
+            and anchor_positive.shape[0] >= 2 
+            and negative_indices.shape[0] >= 1):
+            triplets.append([anchor_positive[0], 
+                             anchor_positive[1], 
+                             negative_indices[0]])
+
         if len(triplets) == 0:
-            triplets.append([anchor_positive[0], anchor_positive[1], negative_indices[0]])
-
+            raise ValueError('No triplet found')
+        
         triplets = np.array(triplets)
-
         return torch.LongTensor(triplets)
 
 
