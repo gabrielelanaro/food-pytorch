@@ -1,50 +1,51 @@
 import torch
+import torch.nn as nn
 
-from tensorflowX import SummaryWriter
-from .base import Trainable
+from torch.autograd import Variable
+import mango
+from torchvision.models import resnet18, resnet34
+
 from ..loss.triplet import OnlineTripletLoss
 from ..loss.selectors import SemihardNegativeTripletSelector
 
 
 RESNET_OUTPUT_SIZE = 1000
 
-class TripletTrainer(Trainable):
+class TripletModel(mango.Model):
 
-    def __init__(self,
-                 dataset,
-                 cuda=False,
-                 embedding_size=64,
-                 margin=1.0,
-                 learning_rate=0.001):
-        super().__init__(dataset)
-        self.model = Sequential(
-            resnet18(pretrained=True),
-            nn.Linear(RESNET_OUTPUT_SIZE, embedding_size)
+    cuda: bool
+    embedding_size: int
+    margin: float
+    learning_rate: float
+
+    def initialize(self):
+        self.net = nn.Sequential(
+            resnet18(pretrained=False),
+            nn.Linear(RESNET_OUTPUT_SIZE, self.embedding_size)
         )
-        self.criterion = OnlineTripletLoss(margin, SemihardNegativeTripletSelector(margin))
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        self.writer = SummaryWriter()
-        self.cuda = cuda
 
-    def do_batch(self, batch, global_step):
-        images = batch['images']
-        labels = batch['labels']
+        self.criterion = OnlineTripletLoss(self.margin, SemihardNegativeTripletSelector(self.margin))
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.learning_rate)
 
+    def batch(self, batch, step):
+        images = Variable(torch.FloatTensor(batch['images']))
+        labels = Variable(torch.FloatTensor(batch['labels'].astype('float')))
+        self.reporter.add_scalar('step', step.step, step.global_step)
         self.optimizer.zero_grad()
-        self.model.train()
+        self.net.train()
 
         if self.cuda:
             images.cuda()
 
-        embeddings = self.model(images)
+        embeddings = self.net(images)
         loss, n_triplets = self.criterion(embeddings, labels)
+
         loss.backward()
         self.optimizer.step()
-        self.model.eval()
+        self.net.eval()
 
-        if global_step % 100 == 0:
-            self.writer.add_scalar('loss', loss.data[0], global_step)
-            self.writer.add_scalar('n_triplets', n_triplets, global_step)
+        self.reporter.add_scalar('loss', loss.data[0], step.global_step)
+        self.reporter.add_scalar('n_triplets', n_triplets, step.global_step)
 
-    def do_epoch(self, global_step):
-        torch.save(self.model.state_dict(), 'fine_tuned2.torch')
+    def epoch(self, step):
+        torch.save(self.net.state_dict(), 'fine_tuned2.torch')

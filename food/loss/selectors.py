@@ -2,12 +2,18 @@ from itertools import combinations
 
 import numpy as np
 import torch
+import torch.nn as nn
 
 
 def pdist(vectors):
-    distance_matrix = -2 * vectors.mm(torch.t(vectors)) + vectors.pow(2).sum(dim=1).view(1, -1) + vectors.pow(2).sum(
-        dim=1).view(-1, 1)
-    return distance_matrix
+    n = vectors.size(0)
+    d = vectors.size(1)
+
+    x = vectors.unsqueeze(1).expand(n, n, d)
+    y = vectors.unsqueeze(0).expand(n, n, d)
+
+    distance_matrix = torch.pow(x - y, 2).sum(2)
+    return distance_matrix.squeeze(2)
 
 
 class PairSelector:
@@ -148,7 +154,7 @@ class FunctionNegativeTripletSelector(TripletSelector):
         if self.cpu:
             embeddings = embeddings.cpu()
         distance_matrix = pdist(embeddings)
-        distance_matrix = distance_matrix.cpu()
+        distance_matrix = distance_matrix.cpu().data.numpy()
 
         labels = labels.cpu().data.numpy()
         triplets = []
@@ -164,8 +170,8 @@ class FunctionNegativeTripletSelector(TripletSelector):
 
             ap_distances = distance_matrix[anchor_positives[:, 0], anchor_positives[:, 1]]
             for anchor_positive, ap_distance in zip(anchor_positives, ap_distances):
-                loss_values = ap_distance - distance_matrix[torch.LongTensor(np.array([anchor_positive[0]])), torch.LongTensor(negative_indices)] + self.margin
-                loss_values = loss_values.data.cpu().numpy()
+                loss_values = ap_distance - distance_matrix[np.array([anchor_positive[0]]), negative_indices] + self.margin
+                # loss_values = loss_values.data.cpu().numpy()
                 hard_negative = self.negative_selection_fn(loss_values)
                 if hard_negative is not None:
                     hard_negative = negative_indices[hard_negative]
