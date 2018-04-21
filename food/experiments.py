@@ -1,9 +1,9 @@
 from mango import Experiment
 from mango.trainer import MiniBatchTrainer
 from mango import reporters
+from mango.loaders import MiniBatchLoader
 
-
-from .training.triplet import TripletModel
+from .models.triplet import TripletModel
 from .datasets.mock import MockFoodDataset
 from .datasets.food import Food101Dataset
 
@@ -15,14 +15,15 @@ reporter = reporters.CombinedReporter([
 
 class Test(Experiment):
 
-    model = TripletModel(cuda=True, 
-                         embedding_size=64, 
-                         margin=0.5, 
+    model = TripletModel(cuda=False,
+                         embedding_size=64,
+                         margin=0.5,
                          learning_rate=0.001,
                          reporter=reporter,
                          checkpoint='test.params')
     dataset = MockFoodDataset()
-    trainer = MiniBatchTrainer(model, dataset, batch_size=32)
+    loader = MiniBatchLoader(dataset, batch_size=8)
+    trainer = MiniBatchTrainer(model, loader)
 
 
 reporter = reporters.CombinedReporter([
@@ -31,7 +32,7 @@ reporter = reporters.CombinedReporter([
 ])
 
 class Main(Experiment):
-    
+
     model = TripletModel(cuda=True,
                          embedding_size=64,
                          margin=0.5,
@@ -39,4 +40,5 @@ class Main(Experiment):
                          checkpoint='main.params',
                          reporter=reporter)
     dataset = Food101Dataset('/home/paperspace/data/food-101/food-101/')
-    trainer = MiniBatchTrainer(model, dataset, batch_size=128)
+    loader = MiniBatchLoader(dataset, batch_size=32)
+    trainer = MiniBatchTrainer(model, loader)

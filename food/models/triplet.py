@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 
@@ -6,13 +7,14 @@ import mango
 from torchvision.models import resnet18, resnet34
 
 from ..loss.triplet import OnlineTripletLoss
+from ..loss.KNNSoftmax import KNNSoftmax
 from ..loss.selectors import SemihardNegativeTripletSelector
 
 
 RESNET_OUTPUT_SIZE = 1000
 
 class Normalizer(nn.Module):
-    
+
     def forward(self, emb):
         norms = torch.norm(emb, p=2, dim=1).data
         emb.data = emb.data.div(norms.view(-1,1).expand_as(emb))
@@ -21,28 +23,33 @@ class Normalizer(nn.Module):
 
 class TripletModel(mango.Model):
 
-    cuda: bool
-    embedding_size: int
-    margin: float
-    learning_rate: float
-    checkpoint: str
+    cuda = mango.Param(bool)
+    embedding_size = mango.Param(int)
+    margin = mango.Param(float)
+    learning_rate = mango.Param(float)
+    checkpoint = mango.Param(str)
 
-    def initialize(self):
+    def build(self):
         self.net = nn.Sequential(
             resnet18(pretrained=False),
             nn.Linear(RESNET_OUTPUT_SIZE, self.embedding_size),
             Normalizer()
         )
-        self.net.load_state_dict(torch.load(self.checkpoint))
-        
+
+        if os.path.exists(self.checkpoint):
+            self.reporter.log(f'Loading checkpoint {self.checkpoint}')
+            self.net.load_state_dict(torch.load(self.checkpoint))
+
         if self.cuda:
             self.net.cuda()
 
-        self.criterion = OnlineTripletLoss(
-            self.margin, 
-            SemihardNegativeTripletSelector(self.margin))
+        # self.criterion = OnlineTripletLoss(
+        #     self.margin,
+        #     SemihardNegativeTripletSelector(self.margin))
+
+        self.criterion = KNNSoftmax(k=4)
         self.optimizer = torch.optim.Adam(
-            self.net.parameters(), 
+            self.net.parameters(),
             lr=self.learning_rate
         )
 
@@ -54,7 +61,7 @@ class TripletModel(mango.Model):
         if len(images.size()) == 1:
             self.reporter.log(f'What the hell {images}\n')
             return
-        
+
         self.optimizer.zero_grad()
         self.net.train()
 
@@ -63,8 +70,8 @@ class TripletModel(mango.Model):
             labels = labels.cuda()
 
         embeddings = self.net(images)
-        loss, n_triplets = self.criterion(embeddings, labels)
-        
+        # loss, n_triplets = self.criterion(embeddings, labels)
+        loss, accuracy, n_pos, n_neg = self.criterion(embeddings, labels)
         if loss is not None:
             loss.backward()
             self.optimizer.step()
@@ -72,18 +79,20 @@ class TripletModel(mango.Model):
             loss_value = loss.data[0]
         else:
             loss_value = 0.0
-        
+
         self.reporter.add_scalar('loss', loss_value, step.global_step)
-        self.reporter.add_scalar('n_triplets', n_triplets, step.global_step)
-        
+        self.reporter.add_scalar('accuracy', accuracy, step.global_step)
+        self.reporter.add_scalar('n_pos', n_pos, step.global_step)
+        self.reporter.add_scalar('n_neg', n_neg, step.global_step)
+
         if step.global_step % 100 == 0:
             self.save()
 
     def embed(self, images):
         images = Variable(torch.FloatTensor(images))
         self.net.eval()
-        return self.net(images).data.cpu().numpy() 
-        
+        return self.net(images).data.cpu().numpy()
+
     def epoch(self, step):
         self.save()
         self.reporter.log(f'epoch {step.epoch} completed')

@@ -1,12 +1,17 @@
+from toolz import pluck
 import numpy as np
+import mango
 
-class MockFoodDataset:
+class MockFoodDataset(mango.SplitDataset):
 
-    def load(self):
-        pass
+    def build(self):
+        self.train_images = np.random.rand(1000, 3, 244, 244)
+        self.train_labels = np.random.randint(0, 3, size=1000)
+        self.train_data = list(zip(self.train_images, self.train_labels))
 
-    def __getitem__(self, index):
-        return {'images': np.random.rand(3, 224, 224), 'labels': np.random.randint(10)}
+    def train(self):
+        return self.train_data
 
-    def __len__(self):
-        return 1000
+    def transform_train(self, data):
+        return {'images': np.array(list(pluck(0, data))),
+                'labels': np.array(list(pluck(1, data)))}
