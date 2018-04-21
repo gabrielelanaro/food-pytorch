@@ -59,7 +59,7 @@ class KNNSoftmax(nn.Module):
             if len(pos_neig) == 0:
                 pos_neig = pos_pair[0]
 
-            # The calculation of logit, 1 is to prevent the computer from floating over the number of points
+            # The calculation of logit is to avoid floating point errors
             pos_logit = torch.sum(torch.exp(self.alpha*(1 - pos_neig)))
             neg_logit = torch.sum(torch.exp(self.alpha*(1 - neg_neig)))
             loss_ = -torch.log(pos_logit/(pos_logit + neg_logit))
