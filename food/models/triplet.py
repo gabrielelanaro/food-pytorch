@@ -1,23 +1,25 @@
 import os
 import torch
 import torch.nn as nn
+import numpy as np
 
 from torch.autograd import Variable
 import mango
 from torchvision.models import resnet18, resnet34
+from toolz import partition_all
 
 from ..loss.triplet import OnlineTripletLoss
 from ..loss.KNNSoftmax import KNNSoftmax
 from ..loss.selectors import SemihardNegativeTripletSelector
-
 
 RESNET_OUTPUT_SIZE = 1000
 
 class Normalizer(nn.Module):
 
     def forward(self, emb):
-        norms = torch.norm(emb, p=2, dim=1).data
-        emb.data = emb.data.div(norms.view(-1,1).expand_as(emb))
+        norms = torch.norm(emb, p=2, dim=1)
+        emb = emb.div(norms.view(-1,1).expand_as(emb))
+
         return emb
 
 
@@ -35,11 +37,10 @@ class TripletModel(mango.Model):
             nn.Linear(RESNET_OUTPUT_SIZE, self.embedding_size),
             Normalizer()
         )
-
         if os.path.exists(self.checkpoint):
             self.reporter.log(f'Loading checkpoint {self.checkpoint}')
             self.net.load_state_dict(torch.load(self.checkpoint))
-
+        
         if self.cuda:
             self.net.cuda()
 
@@ -52,6 +53,7 @@ class TripletModel(mango.Model):
             self.net.parameters(),
             lr=self.learning_rate
         )
+                
 
     def batch(self, batch, step):
         self.reporter.log(f'Step {step.step} of {step.max_steps}')
@@ -76,7 +78,7 @@ class TripletModel(mango.Model):
             loss.backward()
             self.optimizer.step()
             self.net.eval()
-            loss_value = loss.data[0]
+            loss_value = loss.data.cpu().numpy()[0]
         else:
             loss_value = 0.0
 
@@ -93,8 +95,28 @@ class TripletModel(mango.Model):
         self.net.eval()
         return self.net(images).data.cpu().numpy()
 
-    def epoch(self, step):
+    def epoch(self, step, dataset):
         self.save()
+        
+        if step.epoch == 0:
+            self.validation_ix = np.random.randint(0, len(dataset), size=100) 
+        
+        data = [dataset.get(ix, 'test') for ix in self.validation_ix]
+        
+        labels = []
+        embs = []
+        for batch in partition_all(64, data):
+            images = np.array([d['images'] for d in batch])
+            images = Variable(torch.FloatTensor(images))
+            if self.cuda:
+                images = images.cuda()
+            embs.extend(self.net(images).data.cpu().numpy())
+            labels.extend(d['labels'] for d in batch)
+        
+        embs = np.array(embs)
+        self.reporter.add_embedding('embeddings', embs, labels=labels, iteration=step.epoch)
+        self.reporter.add_histogram('embeddings', embs, iteration=step.epoch)
+        
         self.reporter.log(f'epoch {step.epoch} completed')
 
     def save(self):

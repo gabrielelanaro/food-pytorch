@@ -13,15 +13,20 @@ import random
 from PIL import Image
 import torchvision.transforms as transforms
 
-def load_filenames(path):
+def load_filenames(path, classes=None):
     '''
     Create a dataset where to a picture we have an associated label
     '''
-
-    classes = os.listdir(os.path.join(path, 'images'))
+    
+    if classes is None:
+        classes = os.listdir(os.path.join(path, 'images'))
+    else:
+        classes = classes
+    
     dataset = concat([[(c, img) for img in glob.glob(os.path.join(path, 'images', c, '*.jpg'))]
                for c in classes])
 
+    
     return list(dataset)
 
 
@@ -113,25 +118,30 @@ class Food101Dataset:
 
     path: str
 
-    def __init__(self, path):
+    def __init__(self, path, classes):
         self.path = path
+        self.classes = classes
         
     def load(self):
-        self.filenames = load_filenames(self.path)
+        self.filenames = load_filenames(self.path, self.classes)
 
     def __getitem__(self, idx):
-        klass, image_fname = self.filenames[idx]
-        img = self._process_image(image_fname)
-        return {'images': img, 'labels': hash(klass)}
-        
+        return self.get(idx, 'train')
+
     def __len__(self):
         return len(self.filenames)
     
-    def _process_image(self, fname):
-        img = Image.open(fname)
-        return self._noise_image(img)
+    def get(self, ix, mode):
+        klass, image_fname = self.filenames[ix]
+        img = Image.open(image_fname)
+        
+        if mode == 'test':
+            return {'images': self._eval_image(img), 'labels': klass}
+        elif mode == 'train':
+            return {'images': self._noise_image(img), 'labels': hash(klass)} 
+        else:
+            raise ValueError('Value not good')
 
-    
     def _noise_image(self, img):
         transform = transforms.Compose(
             [   
@@ -140,6 +150,14 @@ class Food101Dataset:
                 transforms.RandomResizedCrop(224),
                 transforms.RandomHorizontalFlip(),
                 # ColorJitter(0.1, 0.1, 0.1),
+                transforms.ToTensor()
+            ])
+        return transform(img).numpy()
+    
+    def _eval_image(self, img):
+        transform = transforms.Compose(
+            [   
+                transforms.Resize((224, 224)),
                 transforms.ToTensor()
             ])
         return transform(img).numpy()
