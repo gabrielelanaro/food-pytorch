@@ -2,7 +2,6 @@ import os
 import glob
 import numpy as np
 import mango
-
 from toolz import concat
 from skimage import io, transform
 from torch.utils.data import Dataset
@@ -112,27 +111,46 @@ class Food101PairwiseDataset(Dataset):
 
         return sample
 
-    
-    
-class Food101Dataset:
+from sklearn.model_selection import train_test_split
 
-    path: str
 
-    def __init__(self, path, classes):
-        self.path = path
+class Food101Dataset(mango.SplitDataset):
+
+    path = mango.Param(str)
+    seed = mango.Param(int)
+
+    def __init__(self, path, classes, seed=42):
+        super().__init__(path=path, seed=seed)
         self.classes = classes
         
-    def load(self):
-        self.filenames = load_filenames(self.path, self.classes)
-
-    def __getitem__(self, idx):
-        return self.get(idx, 'train')
-
-    def __len__(self):
-        return len(self.filenames)
+    def build(self):
+        np.random.seed(42)
+        filenames = load_filenames(self.path, self.classes)
+        self.train_fn, self.test_fn = train_test_split(filenames, test_size=512)
+        
+    def train(self):
+        return self.train_fn
     
-    def get(self, ix, mode):
-        klass, image_fname = self.filenames[ix]
+    def test(self):
+        return self.test_fn
+    
+    def transform_train(self, data):
+        list_of_dicts = [self.get(image_fname, klass, 'train') for klass, image_fname in data]
+        images = list(pluck('images', list_of_dicts))
+        labels = list(pluck('labels', list_of_dicts))
+        
+        return {'images': np.array(images), 'labels': np.array(labels)}
+    
+    def transform_test(self, data):
+        list_of_dicts = [self.get(image_fname, klass, 'test') for klass, image_fname in data] 
+        images = list(pluck('images', list_of_dicts))
+        labels = list(pluck('labels', list_of_dicts))
+        
+        return {'images': np.array(images), 'labels': np.array(labels)}
+        
+        
+
+    def get(self, image_fname, klass, mode):
         img = Image.open(image_fname)
         
         if mode == 'test':

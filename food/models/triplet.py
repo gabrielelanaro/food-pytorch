@@ -30,10 +30,13 @@ class TripletModel(mango.Model):
     margin = mango.Param(float)
     learning_rate = mango.Param(float)
     checkpoint = mango.Param(str)
+    k = mango.Param(int, default=4)
+    dropout = mango.Param(float, default=0.2)
 
     def build(self):
         self.net = nn.Sequential(
             resnet18(pretrained=False),
+            nn.Dropout(self.dropout),
             nn.Linear(RESNET_OUTPUT_SIZE, self.embedding_size),
             Normalizer()
         )
@@ -48,11 +51,16 @@ class TripletModel(mango.Model):
         #     self.margin,
         #     SemihardNegativeTripletSelector(self.margin))
 
-        self.criterion = KNNSoftmax(k=4)
+        self.criterion = KNNSoftmax(self.k, cuda=self.cuda)
         self.optimizer = torch.optim.Adam(
             self.net.parameters(),
             lr=self.learning_rate
         )
+        
+        if os.path.exists(self.checkpoint + '.adam'):
+            self.reporter.log(f'Loading adam checkpoint {self.checkpoint}.adam')
+            self.optimizer.load_state_dict(torch.load(self.checkpoint + '.adam'))
+
                 
 
     def batch(self, batch, step):
@@ -61,7 +69,6 @@ class TripletModel(mango.Model):
         labels = Variable(torch.FloatTensor(batch['labels'].astype('float')))
 
         if len(images.size()) == 1:
-            self.reporter.log(f'What the hell {images}\n')
             return
 
         self.optimizer.zero_grad()
@@ -87,34 +94,44 @@ class TripletModel(mango.Model):
         self.reporter.add_scalar('n_pos', n_pos, step.global_step)
         self.reporter.add_scalar('n_neg', n_neg, step.global_step)
 
-        if step.global_step % 100 == 0:
-            self.save()
-
     def embed(self, images):
         images = Variable(torch.FloatTensor(images))
         self.net.eval()
         return self.net(images).data.cpu().numpy()
 
-    def epoch(self, step, dataset):
+    def epoch(self, step, loader):
         self.save()
         
-        if step.epoch == 0:
-            self.validation_ix = np.random.randint(0, len(dataset), size=100) 
+        self.net.eval()
+        loader.test()
         
-        data = [dataset.get(ix, 'test') for ix in self.validation_ix]
-        
-        labels = []
+        label_names = []
         embs = []
-        for batch in partition_all(64, data):
-            images = np.array([d['images'] for d in batch])
-            images = Variable(torch.FloatTensor(images))
+        loss = []
+        accuracies = []
+        
+        for batch in loader:
+            
+            images = Variable(torch.FloatTensor(batch['images']))
+            lbl = np.array([hash(l) for l in batch['labels']])
+            lbl = Variable(torch.FloatTensor(lbl.astype('float')))
+
             if self.cuda:
                 images = images.cuda()
-            embs.extend(self.net(images).data.cpu().numpy())
-            labels.extend(d['labels'] for d in batch)
-        
+            
+            embeddings = self.net(images)
+            loss_, acc, *others = self.criterion(embeddings, lbl)
+            loss.append(loss_.data.cpu().numpy()[0])
+            
+            embs.extend(embeddings.data.cpu().numpy())
+            label_names.extend(batch['labels'])
+            accuracies.append(acc)
+
         embs = np.array(embs)
-        self.reporter.add_embedding('embeddings', embs, labels=labels, iteration=step.epoch)
+        
+        self.reporter.add_scalar('val_loss', np.mean(loss), step.global_step)
+        self.reporter.add_scalar('val_acc', np.mean(acc), step.global_step)
+        self.reporter.add_embedding('embeddings', embs, labels=label_names, iteration=step.epoch)
         self.reporter.add_histogram('embeddings', embs, iteration=step.epoch)
         
         self.reporter.log(f'epoch {step.epoch} completed')
@@ -122,3 +139,6 @@ class TripletModel(mango.Model):
     def save(self):
         self.reporter.log(f'Saving checkpoint {self.checkpoint}')
         torch.save(self.net.state_dict(), self.checkpoint)
+        torch.save(self.optimizer.state_dict(), self.checkpoint + '.adam')
+        
+        
