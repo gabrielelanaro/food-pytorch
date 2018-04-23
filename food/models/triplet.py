@@ -11,6 +11,7 @@ from toolz import partition_all
 from ..loss.triplet import OnlineTripletLoss
 from ..loss.KNNSoftmax import KNNSoftmax
 from ..loss.selectors import SemihardNegativeTripletSelector
+from ..cls import CyclicLR
 
 RESNET_OUTPUT_SIZE = 1000
 
@@ -61,13 +62,18 @@ class TripletModel(mango.Model):
             self.reporter.log(f'Loading adam checkpoint {self.checkpoint}.adam')
             self.optimizer.load_state_dict(torch.load(self.checkpoint + '.adam'))
 
-                
+        # self.optimizer = torch.optim.SGD(self.net.parameters(), lr=0.001, momentum=0.9)
+        # self.scheduler = CyclicLR(self.optimizer, base_lr=0.0001, max_lr=0.001, step_size=200)
+        
+        
+        
 
     def batch(self, batch, step):
         self.reporter.log(f'Step {step.step} of {step.max_steps}')
+        #self.scheduler.batch_step()
         images = Variable(torch.FloatTensor(batch['images']))
         labels = Variable(torch.FloatTensor(batch['labels'].astype('float')))
-
+        
         if len(images.size()) == 1:
             return
 

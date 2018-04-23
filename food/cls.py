@@ -2,7 +2,7 @@
 # This code is under review at PyTorch and is to be merged eventually to make CLR available to all.
 # Tested with pytorch 0.2.0
 
-import Optimizer
+import numpy as np
 
 
 class CyclicLR(object):
@@ -79,9 +79,9 @@ class CyclicLR(object):
                  step_size=2000, mode='triangular', gamma=1.,
                  scale_fn=None, scale_mode='cycle', last_batch_iteration=-1):
 
-        if not isinstance(optimizer, Optimizer):
-            raise TypeError('{} is not an Optimizer'.format(
-                type(optimizer).__name__))
+        #if not isinstance(optimizer, Optimizer):
+        #    raise TypeError('{} is not an Optimizer'.format(
+        #        type(optimizer).__name__))
         self.optimizer = optimizer
 
         if isinstance(base_lr, list) or isinstance(base_lr, tuple):
